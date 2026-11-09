@@ -84,6 +84,8 @@ You can check the "no orders" claim yourself: `javap -v` on the compiled classes
 
 ## Changelog
 
+- **0.1.4** — after an update of the jar the instances of the old copy stop by themselves (MotiveWave does not tell them they were replaced, and their background loading kept running).
+- **0.1.3** — every journal line names the instrument (MNQZ6, MGCZ6, ...): two charts write into one file.
 - **0.1.2** — a longer history that the platform returns empty or short (e.g. right after the month profile is switched on) is asked for again, up to 5 times 30 s apart; the colors in the gear panel are named (Month color, Week color, ...).
 - **0.1.1** — the current period follows the market within a minute (MotiveWave flags its newest 1-minute bars as not complete for ~15 minutes; a minute now counts once its time is over, and the last 20 minutes are asked again).
 - **0.1.0** — first version: month, week, day and hour profiles, POC and 70 % value area, as in Futures Tester.

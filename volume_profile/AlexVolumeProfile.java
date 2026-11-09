@@ -72,9 +72,13 @@ import volume_profile.core.SessionClock;
 )
 public class AlexVolumeProfile extends Study {
 
-    static final String VERSION = "0.1.2";
+    static final String VERSION = "0.1.4";
 
     private static final long MIN = 60_000L;
+    /** Which loaded copy of the jar is current: a JVM-wide property, so instances of an older jar can see it. */
+    private static final String LOADED_KEY = "com.zentrader.VolumeProfile.loaded";
+    private static final String LOADED_ID = VERSION + "@" + Integer.toHexString(System.identityHashCode(AlexVolumeProfile.class))
+            + "@" + System.nanoTime();
     private static final long REFRESH_MS = 5_000L;          // how often the newest closed minutes are fetched
     private static final long RETRY_MS = 60_000L;           // after a failed history request
     private static final int FULL_TRIES = 5;                // a history that comes back short is asked for again ...
@@ -182,6 +186,7 @@ public class AlexVolumeProfile extends Study {
     // ==================== platform callbacks ====================
     @Override
     protected void precalculate(DataContext ctx) {
+        System.setProperty(LOADED_KEY, LOADED_ID);                 // this jar is the one in use now
         config = readConfig();
         instrument = ctx.getInstrument();
         if (!getFigures().contains(figure)) {
@@ -199,7 +204,7 @@ public class AlexVolumeProfile extends Study {
     @Override
     public void onSettingsUpdated(DataContext ctx) {
         config = readConfig();
-        AuditLog.log("SETTINGS", config.text());
+        log("SETTINGS", config.text());
         start().execute(this::refresh);
         super.onSettingsUpdated(ctx);
     }
@@ -209,7 +214,7 @@ public class AlexVolumeProfile extends Study {
         var e = exec;
         exec = null;
         if (e != null) e.shutdownNow();
-        AuditLog.log("LIFECYCLE", "destroyed #" + Integer.toHexString(System.identityHashCode(this) & 0xffff));
+        log("LIFECYCLE", "destroyed #" + Integer.toHexString(System.identityHashCode(this) & 0xffff));
         super.destroy();
     }
 
@@ -229,6 +234,16 @@ public class AlexVolumeProfile extends Study {
     /** Runs on the indicator's own thread only. Never throws: the scheduler would stop. */
     private void refresh() {
         try {
+            if (!LOADED_ID.equals(System.getProperty(LOADED_KEY))) {
+                // 9 Nov 2026: when a new jar replaces this one, MotiveWave does not call destroy() on the old
+                // instances, and their refresh threads kept running; an old instance stops itself instead
+                log("LIFECYCLE", "a newer copy of the indicator is loaded: this old instance stops #"
+                        + Integer.toHexString(System.identityHashCode(this) & 0xffff));
+                var e = exec;
+                exec = null;
+                if (e != null) e.shutdown();
+                return;
+            }
             synchronized (work) {
                 Config c = config;
                 Instrument in = instrument;
@@ -243,7 +258,7 @@ public class AlexVolumeProfile extends Study {
                         // request with no bars at all; a fresh instance got all of them a minute later - so ask again
                         load(in, need, now, true);
                         if (fullTries == FULL_TRIES && tape.first() > need + ProfileSet.SLACK_MS)
-                            AuditLog.log("DATA", "history still starts " + fmt(tape.first()) + " after " + FULL_TRIES
+                            log("DATA", "history still starts " + fmt(tape.first()) + " after " + FULL_TRIES
                                     + " requests: periods before it stay out");
                     } else if (tape.size() > 0 && now >= tape.last() + 2 * MIN + CLOSE_GRACE_MS && now - lastFail >= RETRY_MS) {
                         // a new minute has ended: fetch it, and the last REFETCH_MS again - the platform calls its newest
@@ -254,7 +269,7 @@ public class AlexVolumeProfile extends Study {
                 rebuild(c, in, now);
             }
         } catch (Throwable t) {
-            AuditLog.log("ERROR", "refresh: " + t);
+            log("ERROR", "refresh: " + t);
         }
     }
 
@@ -266,7 +281,7 @@ public class AlexVolumeProfile extends Study {
         } catch (Exception e) {
             lastFail = System.currentTimeMillis();
             if (full) { fullTries++; fullAt = lastFail; }
-            AuditLog.log("ERROR", "1-minute history " + fmt(from) + " .. " + fmt(now) + ": " + e);
+            log("ERROR", "1-minute history " + fmt(from) + " .. " + fmt(now) + ": " + e);
             return;
         }
         double tick = in.getTickSize();
@@ -287,7 +302,7 @@ public class AlexVolumeProfile extends Study {
         if (full) { fullTries++; fullAt = System.currentTimeMillis(); }
         fetches++;
         if (full || fetches <= 5 || ms > 1000 || add.isEmpty() && fetches % 60 == 0)
-            AuditLog.log("DATA", (full ? "history" : "update") + " asked " + fmt(from) + " .. " + fmt(now) + ": " + bars.size()
+            log("DATA", (full ? "history" : "update") + " asked " + fmt(from) + " .. " + fmt(now) + ": " + bars.size()
                     + " bars (" + forming + " still forming, " + incomplete + " over but flagged not complete) in " + ms + " ms; tape " + before.size() + " -> " + tape.size()
                     + (tape.size() > 0 ? " minutes, " + fmt(tape.first()) + " .. " + fmt(tape.last()) : "")
                     + (full && tape.size() > 0 && tape.first() > from + ProfileSet.SLACK_MS
@@ -306,7 +321,7 @@ public class AlexVolumeProfile extends Study {
         long ms = (System.nanoTime() - t0) / 1_000_000;
         if (c != builtWith || ms > 500 || now - lastLiveLog >= 10 * MIN) {
             lastLiveLog = now;
-            AuditLog.log("BUILD", profiles.size() + " profiles from " + tape.size() + " minutes in " + ms + " ms; newest minute "
+            log("BUILD", profiles.size() + " profiles from " + tape.size() + " minutes in " + ms + " ms; newest minute "
                     + fmt(tape.last()) + " (now " + fmt(now) + ")");
         }
         builtWith = c;
@@ -326,16 +341,22 @@ public class AlexVolumeProfile extends Study {
                     p.kind(), p.current() ? "CURRENT" : "closed", fmt(p.startMs()), fmt(p.firstMinute()), fmt(p.lastMinute()),
                     p.minutes(), p.totalVolume(), p.volumes().length, p.binTicks(), px(p.from(tick)), levels);
             if (!p.current()) {
-                if (logged.add(id + ":" + p.lastMinute())) AuditLog.log("PROFILE", line);
+                if (logged.add(id + ":" + p.lastMinute())) log("PROFILE", line);
             } else {
                 Long at = currentLoggedAt.get(id);
                 if (!levels.equals(currentLogged.get(id)) && (at == null || now - at >= 15 * MIN)) {
                     currentLogged.put(id, levels);
                     currentLoggedAt.put(id, now);
-                    AuditLog.log("PROFILE", line);
+                    log("PROFILE", line);
                 }
             }
         }
+    }
+
+    /** A journal line that always names the instrument (two charts write into one file). */
+    private void log(String category, String text) {
+        Instrument in = instrument;
+        AuditLog.log(category, (in == null ? "?" : in.getSymbol()) + " " + text);
     }
 
     private static String px(double v) { return String.format(Locale.ROOT, "%.2f", v); }
