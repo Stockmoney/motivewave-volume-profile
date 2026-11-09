@@ -72,7 +72,7 @@ import volume_profile.core.SessionClock;
 )
 public class AlexVolumeProfile extends Study {
 
-    static final String VERSION = "0.1.4";
+    static final String VERSION = "0.1.5";
 
     private static final long MIN = 60_000L;
     /** Which loaded copy of the jar is current: a JVM-wide property, so instances of an older jar can see it. */
@@ -234,7 +234,12 @@ public class AlexVolumeProfile extends Study {
     /** Runs on the indicator's own thread only. Never throws: the scheduler would stop. */
     private void refresh() {
         try {
-            if (!LOADED_ID.equals(System.getProperty(LOADED_KEY))) {
+            String loaded = System.getProperty(LOADED_KEY);
+            if (loaded == null) {
+                // nothing claimed yet (9 Nov 2026: after a platform start the settings callback came before precalculate,
+                // and 0.1.4 took the empty property for a newer copy and stopped for a moment): this copy is the current one
+                System.setProperty(LOADED_KEY, LOADED_ID);
+            } else if (!LOADED_ID.equals(loaded)) {
                 // 9 Nov 2026: when a new jar replaces this one, MotiveWave does not call destroy() on the old
                 // instances, and their refresh threads kept running; an old instance stops itself instead
                 log("LIFECYCLE", "a newer copy of the indicator is loaded: this old instance stops #"

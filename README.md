@@ -84,6 +84,7 @@ You can check the "no orders" claim yourself: `javap -v` on the compiled classes
 
 ## Changelog
 
+- **0.1.5** — right after MotiveWave starts, the indicator no longer stops for a few seconds (0.1.4 mistook "no copy registered yet" for a newer copy).
 - **0.1.4** — after an update of the jar the instances of the old copy stop by themselves (MotiveWave does not tell them they were replaced, and their background loading kept running).
 - **0.1.3** — every journal line names the instrument (MNQZ6, MGCZ6, ...): two charts write into one file.
 - **0.1.2** — a longer history that the platform returns empty or short (e.g. right after the month profile is switched on) is asked for again, up to 5 times 30 s apart; the colors in the gear panel are named (Month color, Week color, ...).
